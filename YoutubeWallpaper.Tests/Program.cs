@@ -1,0 +1,262 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using YoutubeWallpaper.App;
+using YoutubeWallpaper.Playback;
+using YoutubeWallpaper.Wallpaper;
+
+namespace YoutubeWallpaper.Tests;
+
+internal static class Program
+{
+    private static int failures, assertions;
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        try
+        {
+            TestUrls();
+            TestSettings();
+            if (args.Contains("--ui")) RunMessageLoop(TestPanelAsync);
+            if (args.Contains("--desktop")) RunMessageLoop(TestDesktopAsync);
+            int playback = Array.IndexOf(args, "--playback");
+            if (playback >= 0 && args.Length > playback + 1)
+                RunMessageLoop(() => TestPlaybackAsync(args[playback + 1]));
+        }
+        catch (Exception ex) { failures++; Console.WriteLine("FAIL: " + ex); }
+        Console.WriteLine($"Resultado: {assertions} comprobaciones, {failures} fallos.");
+        return failures == 0 ? 0 : 1;
+    }
+    private static void Check(bool condition, string message)
+    {
+        assertions++;
+        if (!condition) { failures++; Console.WriteLine("FAIL: " + message); }
+    }
+
+    private static void TestUrls()
+    {
+        int previousFailures = failures;
+        const string id = "M7lc1UVf-VE", list = "PL1234567890abcdef";
+        var valid = new[]
+        {
+            ("https://www.youtube.com/watch?v=" + id, id, (string?)null),
+            ("https://youtu.be/" + id + "?si=private-tracking", id, (string?)null),
+            ("https://www.youtube.com/playlist?list=" + list, (string?)null, list),
+            ("https://www.youtube.com/watch?v=" + id + "&list=" + list + "&index=3", id, list),
+            ("https://m.youtube.com/watch?v=" + id, id, (string?)null)
+        };
+        foreach (var (url, video, playlist) in valid)
+        {
+            bool parsed = YouTubeUrlParser.TryParse(url, out var source, out _);
+            Check(parsed && source?.VideoId == video && source?.PlaylistId == playlist, "Parser: " + url);
+            Check(source != null && !source.CanonicalUrl.Contains("private-tracking"), "No persiste seguimiento");
+        }
+        Check(YouTubeUrlParser.TryParse(valid[3].Item1, out var indexed, out _) && indexed?.PlaylistIndex == 2, "Índice de playlist");
+        foreach (string url in new[]
+        {
+            "", "javascript:alert(1)", "file:///C:/video.html", "http://www.youtube.com/watch?v=" + id,
+            "https://localhost/watch?v=" + id, "https://www.youtube.com.evil.example/watch?v=" + id,
+            "https://youtube.com@evil.example/watch?v=" + id, "https://user@youtube.com/watch?v=" + id,
+            "https://www.youtube.com:444/watch?v=" + id, "https://youtu.be/" + id + "/extra",
+            "https://www.youtube.com/watch?v=short", "https://www.youtube.com/watch?v=" + id + "&v=other",
+            "https://www.youtube.com/playlist", "https://www.youtube.com/playlist?list=<script>",
+            "https://www.youtube.com/watch?v=" + id + "&list=" + list + "&index=-1",
+            "https://www.youtube.com/redirect?q=https://evil.example", "https://www.youtube.com/watch?v=%22onclick%3D1"
+        })
+            Check(!YouTubeUrlParser.TryParse(url, out _, out _), "Rechaza URL no admitida");
+        Report(previousFailures, "parser, normalización y rechazo de URL insegura.");
+    }
+    private static string TestDirectory(string name)
+    {
+        string path = Path.Combine(Environment.CurrentDirectory, ".build", "tests", name + "-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+    private static void TestSettings()
+    {
+        int previousFailures = failures;
+        string path = TestDirectory("settings");
+        var store = new SettingsStore(path);
+        Check(store.Load(out var notice) == new AppSettings() && notice == null, "Defaults sin archivo");
+        Check(store.Save(new() { LastUrl = "https://youtu.be/M7lc1UVf-VE?si=secret", Volume = 0, Opacity = 50 }, out _), "Guardar ajustes");
+        var loaded = store.Load(out notice);
+        Check(loaded.Volume == 0 && loaded.Opacity == 50 && loaded.LastUrl == "https://www.youtube.com/watch?v=M7lc1UVf-VE", "Roundtrip y URL canónica");
+        Check(!File.ReadAllText(store.FilePath).Contains("secret"), "JSON sin seguimiento");
+        for (int n = 0; n < 20; n++)
+        {
+            bool saved = store.Save(new() { Volume = n }, out var writeError);
+            var current = store.Load(out var readNotice);
+            Check(saved && current.Volume == n, $"Reemplazo atómico {n}: guardado={saved}, leído={current.Volume}; {writeError ?? readNotice}");
+        }
+        Check(!Directory.EnumerateFiles(path, "*.tmp").Any(), "Sin temporales huérfanos");
+        File.WriteAllText(store.FilePath, "{broken");
+        Check(store.Load(out notice) == new AppSettings() && notice != null, "JSON corrupto recuperable");
+        File.WriteAllText(store.FilePath, """{"schemaVersion":1,"volume":120,"opacity":-1,"qualityMode":"1080p","lastUrl":"file:///secret"}""");
+        Check(store.Load(out _) == new AppSettings(), "Valores fuera de rango recuperables");
+        File.WriteAllText(store.FilePath, """{"schemaVersion":999,"volume":0}""");
+        Check(store.Load(out notice) == new AppSettings() && notice != null, "Versión desconocida recuperable");
+        using (File.Open(store.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Check(!store.Save(new(), out var error) && error != null, "Fallo de escritura recuperable");
+        Check(!Directory.EnumerateFiles(path, "*.tmp").Any(), "Limpieza tras fallo de escritura");
+        Report(previousFailures, "persistencia, corrupción, valores inválidos y escritura bloqueada.");
+    }
+    private static void Report(int previousFailures, string description) =>
+        Console.WriteLine((failures == previousFailures ? "PASS: " : "FAIL: ") + description);
+
+    private static void RunMessageLoop(Func<Task> test)
+    {
+        using var context = new ApplicationContext();
+        using var starter = new System.Windows.Forms.Timer { Interval = 1 };
+        starter.Tick += async (_, _) =>
+        {
+            starter.Stop();
+            try { await test(); }
+            catch (Exception ex) { failures++; Console.WriteLine("FAIL: " + ex); }
+            finally { context.ExitThread(); }
+        };
+        starter.Start();
+        Application.Run(context);
+    }
+    private static async Task TestPanelAsync()
+    {
+        var store = new SettingsStore(TestDirectory("panel"));
+        using var form = new Form1(store);
+        form.Show();
+        await Task.Delay(150);
+        string previewPath = Path.Combine(Environment.CurrentDirectory, "artifacts", "panel.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(previewPath)!);
+        using (var preview = new Bitmap(form.Width, form.Height))
+        {
+            form.DrawToBitmap(preview, new Rectangle(Point.Empty, preview.Size));
+            preview.Save(previewPath, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        Console.WriteLine($"Panel renderizado: {previewPath}; DPI={form.DeviceDpi}");
+        var host = Field<WallpaperHost>(form, "wallpaper");
+        Check(form.Visible && !host.IsActive && host.Status.State == PlaybackState.Inactive, "T01 panel visible sin autoplay");
+        Field<TextBox>(form, "urlBox").Text = "javascript:alert(1)";
+        Field<Button>(form, "applyButton").PerformClick();
+        Check(!host.IsActive && Field<Label>(form, "errorLabel").Text.Length > 0, "T05 error recuperable");
+        form.Close();
+        Check(!form.Visible && !form.ShowInTaskbar && !form.IsDisposed, "X oculta y mantiene el proceso");
+        form.ShowConfiguration();
+        Check(form.Visible && form.ShowInTaskbar, "Reapertura de configuración");
+        form.GetType().GetMethod("ExitApplication", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(form, null);
+        Check(form.IsDisposed && !host.IsActive, "Salida libera panel y host");
+        Console.WriteLine("PASS: panel, URL inválida, ocultación, reapertura y salida programáticas.");
+    }
+    private static T Field<T>(object instance, string name) =>
+        (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+
+    private static async Task TestDesktopAsync()
+    {
+        var layer = DesktopInterop.FindDesktopLayer();
+        WallpaperForm form;
+        using (DesktopInterop.MatchDpiContext(layer.Parent)) form = new WallpaperForm();
+        nint handle = form.SurfaceHandle;
+        using (form)
+        {
+            DesktopInterop.Attach(handle, layer);
+            form.Show();
+            await Task.Delay(300);
+            Check(DesktopInterop.IsAttached(handle, layer), "HWND propio hijo de WorkerW");
+            Check(!IsWindowEnabled(handle), "Superficie pasiva deshabilitada");
+            long extended = GetWindowLongPtr(handle, -20).ToInt64();
+            Check((extended & 0x80) != 0 && (extended & 0x40000) == 0, "Estilos sin ventana de barra/Alt+Tab");
+            Console.WriteLine("Capa: " + DesktopInterop.ClassName(layer.Parent) + "; iconos: " + DesktopInterop.ClassName(layer.IconRoot));
+        }
+        Check(!DesktopInterop.IsWindow(handle), "HWND destruido al detener");
+        Console.WriteLine("PASS: acoplamiento y limpieza Win32. Clics y composición visual requieren prueba manual.");
+    }
+    private static async Task TestPlaybackAsync(string url)
+    {
+        if (!YouTubeUrlParser.TryParse(url, out var source, out string error)) throw new InvalidOperationException(error);
+        var settings = new SettingsStore(TestDirectory("playback"));
+        using var form = new Form1(settings);
+        form.Show();
+        var host = Field<WallpaperHost>(form, "wallpaper");
+        host.StatusChanged += (_, status) => Console.WriteLine("Player: " + status.State + " " + status.Message);
+        Field<TextBox>(form, "urlBox").Text = url;
+        Field<TrackBar>(form, "volumeSlider").Value = 0;
+        Field<TrackBar>(form, "intensitySlider").Value = 100;
+        Field<Button>(form, "applyButton").PerformClick();
+        await WaitForPlayer(host);
+        Check(host.Status.State == PlaybackState.Playing, "Evento real playing de YouTube");
+        if (host.Status.State == PlaybackState.Playing)
+        {
+            var firstSurface = Field<WallpaperForm>(host, "surface");
+            Check(DesktopInterop.IsWindow(firstSurface.SurfaceHandle), "Host separado del panel");
+            form.Close();
+            await Task.Delay(1500);
+            Check(!form.Visible && host.Status.State == PlaybackState.Playing && host.IsActive, "T10 reproducción con panel oculto");
+            using (JsonDocument playing = await Snapshot(firstSurface))
+                Check(playing.RootElement.GetProperty("state").GetInt32() == 1, "YouTube confirma playing con panel oculto");
+            var tray = Field<TrayController>(form, "tray");
+            var icon = Field<NotifyIcon>(tray, "icon");
+            Check(icon.Visible, "Bandeja persistente con panel oculto");
+            foreach (int value in new[] { 0, 20, 100 })
+            {
+                Field<TrackBar>(form, "volumeSlider").Value = value;
+                await Task.Delay(150);
+                using JsonDocument snapshot = await Snapshot(firstSurface);
+                Check(snapshot.RootElement.GetProperty("volume").GetInt32() == value &&
+                    snapshot.RootElement.GetProperty("muted").GetBoolean() == (value == 0), "T13 volumen API " + value);
+            }
+            Field<TrackBar>(form, "volumeSlider").Value = 0;
+            foreach (int value in new[] { 0, 50, 100 })
+            {
+                Field<TrackBar>(form, "intensitySlider").Value = value;
+                await Task.Delay(150);
+                using JsonDocument snapshot = await Snapshot(firstSurface);
+                string filter = snapshot.RootElement.GetProperty("filter").GetString()!;
+                string expected = "brightness(" + (value / 100.0).ToString(System.Globalization.CultureInfo.InvariantCulture) + ")";
+                Check(filter == expected, "Filtro de intensidad " + value);
+            }
+            var menu = Field<ContextMenuStrip>(tray, "menu");
+            ((ToolStripMenuItem)menu.Items[0]).PerformClick();
+            Check(form.Visible && host.Status.State == PlaybackState.Playing, "Reapertura durante reproducción");
+            await firstSurface.View.ExecuteScriptAsync("player.pauseVideo()");
+            DateTime pauseDeadline = DateTime.UtcNow.AddSeconds(3);
+            while (host.Status.State != PlaybackState.Paused && DateTime.UtcNow < pauseDeadline) await Task.Delay(100);
+            Check(host.Status.State == PlaybackState.Paused, "Pausa oficial refleja estado en bandeja");
+            ((ToolStripMenuItem)menu.Items[1]).PerformClick();
+            await WaitForPlayer(host);
+            Check(host.Status.State == PlaybackState.Playing, "Reanudar desde bandeja");
+            // A second URL replaces all resources; the short URL goes through the same official player.
+            YouTubeUrlParser.TryParse("https://youtu.be/aqz-KE-bpKQ", out var replacement, out _);
+            Field<TextBox>(form, "urlBox").Text = replacement!.CanonicalUrl.Replace("https://www.youtube.com/watch?v=", "https://youtu.be/");
+            ((ToolStripMenuItem)menu.Items[1]).PerformClick();
+            await WaitForPlayer(host);
+            Check(firstSurface.IsDisposed && Application.OpenForms.OfType<WallpaperForm>().Count() == 1, "T16 sustituir sin duplicar superficies");
+            Check(host.Status.State == PlaybackState.Playing && host.Source?.VideoId == replacement!.VideoId, "T03 fuente youtu.be reproducida");
+            var lastSurface = Field<WallpaperForm>(host, "surface");
+            Field<ToolStripMenuItem>(tray, "stop").PerformClick();
+            Check(lastSurface.IsDisposed && !DesktopInterop.IsWindow(lastSurface.SurfaceHandle) &&
+                !host.IsActive && icon.Visible, "T15 bandeja detiene y mantiene icono");
+            AppSettings recovered = settings.Load(out _);
+            Check(recovered.LastUrl == replacement.CanonicalUrl && recovered.Volume == 0 && recovered.Opacity == 100, "Ajustes guardados tras aplicar y detener");
+            await Task.Delay(1000);
+        }
+        host.Stop();
+        Check(!host.IsActive && host.Status.State == PlaybackState.Stopped, "Parada del reproductor");
+        var exitMenu = Field<ContextMenuStrip>(Field<TrayController>(form, "tray"), "menu");
+        ((ToolStripMenuItem)exitMenu.Items[4]).PerformClick();
+        Check(form.IsDisposed, "T17 Salir desde el menú de bandeja");
+        Console.WriteLine("No se verifican clics físicos, composición visual ni avance de playlist.");
+    }
+    private static async Task WaitForPlayer(WallpaperHost host)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(48);
+        while (host.Status.State is not (PlaybackState.Playing or PlaybackState.Error) && DateTime.UtcNow < deadline)
+            await Task.Delay(200);
+    }
+    private static async Task<JsonDocument> Snapshot(WallpaperForm surface)
+    {
+        string json = await surface.View.ExecuteScriptAsync("({state: player.getPlayerState(), volume: player.getVolume(), muted: player.isMuted(), filter: getComputedStyle(document.getElementById('player')).filter})");
+        return JsonDocument.Parse(json);
+    }
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(nint window);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
+}
