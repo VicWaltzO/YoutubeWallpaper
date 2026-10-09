@@ -25,6 +25,8 @@ Ejecuta **YoutubeWallpaper.exe** como usuario normal. Aparece el panel; nunca co
 
 Windows controla si el icono está visible o en **^**; la app no modifica tus preferencias de la barra de tareas. No se configura inicio con Windows ni se modifica el wallpaper estático. No se depende de Zen Browser.
 
+El panel utiliza el diseño oscuro solicitado: superficies redondeadas con sombras suaves, tarjetas para fuente/ajustes y acentos cian y violeta. Los botones reaccionan al pasar el puntero y al presionar; el campo de URL cambia su borde al recibir foco y los deslizadores suavizan el movimiento del indicador. Durante la carga hay un indicador animado. Las transiciones se detienen al ocultar el panel y respetan la preferencia de animaciones de Windows. Los deslizadores conservan interacción con ratón, flechas, Home/End, PageUp/PageDown y un valor accesible.
+
 Enlaces admitidos:
 
 ~~~text
@@ -101,6 +103,8 @@ dotnet run --project YoutubeWallpaper.Tests -c Release --no-build -- --playback 
 ~~~
 
 --ui dibuja una vista del panel en artifacts/panel.png. --desktop crea y destruye una superficie temporal sin reproducir. --playback utiliza vídeos reales, comprueba la API y el ciclo de panel/bandeja, y libera sus ventanas al terminar. Los datos de prueba quedan bajo .build/tests, separados de los ajustes de usuario. La prueba puede tardar hasta 45 segundos por carga y utiliza temporalmente el escritorio.
+
+Para renderizar las microanimaciones de los controles reales añade --motion a --ui. Se generan 60 frames PNG en artifacts/motion-frames; estos pueden codificarse como GIF sin capturar contenido del escritorio.
 
 La única dependencia NuGet es la existente. Directory.Build.targets elimina la referencia WPF que esta versión de WebView2 añade a proyectos WinForms; así se evita el conflicto de WindowsBase sin silenciar advertencias. tools/Create-AppIcon.ps1 permite regenerar el icono original del proyecto.
 

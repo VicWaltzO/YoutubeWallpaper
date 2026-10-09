@@ -5,7 +5,7 @@
 - **Debug y Release:** compilación correcta, **0 errores y 0 advertencias**.
 - **Publicación:** generada en artifacts/publish, dependiente de .NET Desktop Runtime 8.
 - **Suite de base:** 58 comprobaciones, 0 fallos; parser y persistencia.
-- **Panel:** 63 comprobaciones, 0 fallos; incluye base, error de URL, X, reapertura y salida programáticas. Render inspeccionado a 96 DPI, sin recorte del contenido.
+- **Panel actualizado:** 71 comprobaciones, 0 fallos; incluye base, error de URL, ratón/teclado y accesibilidad de los deslizadores, convergencia del indicador animado, suspensión de animaciones al ocultar, X, reapertura y salida. Render inspeccionado a 96 DPI, sin recorte del contenido.
 - **Ciclo real en Release:** **78 comprobaciones, 0 fallos**; incluye base, reproducción oficial, ocultación, API de volumen/intensidad, reanudación, sustitución de vídeo, detención y salida desde menú de bandeja.
 - **Limpieza:** consulta de procesos tras la prueba encontró **0** procesos del ejecutable de tests o de WebView2 asociados a sus perfiles temporales. El DLL publicado coincide por SHA-256 con el Release probado.
 - La prueba Win32 independiente comprobó padre WorkerW, estilos de superficie pasiva/sin barra ni Alt+Tab y destrucción del HWND propio. El contenedor de iconos encontrado fue Progman.
@@ -77,6 +77,7 @@ La prueba de reproducción inició con el vídeo de ejemplo de la documentación
 | YoutubeWallpaper/App/TrayController.cs | NotifyIcon y menú persistentes. |
 | YoutubeWallpaper/App/AppSettings.cs, SettingsStore.cs, LocalDiagnostics.cs | Ajustes locales y diagnósticos sin URLs sensibles. |
 | YoutubeWallpaper/Resources/app.ico, tools/Create-AppIcon.ps1 | Icono propio empaquetado y generación reproducible. |
+| YoutubeWallpaper/UI/ | Tema oscuro, superficies redondeadas, botones y deslizadores animados, estado, iconos vectoriales y preferencia de movimiento de Windows. |
 | YoutubeWallpaper.Tests/Program.cs | Validación ejecutable sin nueva dependencia NuGet. |
 
 ## Comprobación manual pendiente
@@ -90,3 +91,13 @@ La prueba de reproducción inició con el vídeo de ejemplo de la documentación
 7. Sal y reabre el exe. Debe recuperar ajustes y permanecer inactivo hasta Aplicar. Comprueba también una segunda ejecución mientras está activo.
 
 No se modificaron el registro, el fondo estático, el inicio de Windows, la configuración de barra de tareas ni las preferencias de Explorer. No se publicaron archivos en GitHub. La migración a .NET 10, transparencia real y validación en otros builds de Windows quedan como trabajos posteriores.
+
+## Diseño y microanimaciones
+
+El panel se adaptó a la referencia oscura entregada por el usuario con tarjetas en tonos pizarra, esquinas redondeadas, sombras suaves, degradados cian/violeta e iconos dibujados como vectores. Los porcentajes siguen siendo valores reales de los ajustes; no se agregaron métricas ficticias.
+
+Las animaciones están implementadas con controles WinForms y timers de UI activados por interacción, sin paquetes adicionales. El brillo de los botones, su respuesta al presionar, el foco del campo y el movimiento/halo del deslizador usan transiciones breves. Solo el indicador de carga continúa mientras su estado lo requiere y el panel está visible. Se consulta la preferencia de animaciones de Windows y se detienen los timers al ocultar.
+
+La validación del rediseño detectó un bloqueo transitorio de reemplazo del JSON que Windows notificó como ACCESS_DENIED. El guardado ahora incluye ese caso en los mismos dos reintentos limitados, sin ocultar un error de permisos permanente ni modificar permisos de archivos.
+
+La vista animada de artifacts/microanimaciones.gif procede de 60 renders de los controles reales; no es una simulación en HTML ni un mock. Los frames reproducen hover y cambios de valor sin iniciar un wallpaper. El GIF y los frames son artefactos locales ignorados por Git.

@@ -4,12 +4,14 @@ using System.Text.Json;
 using YoutubeWallpaper.App;
 using YoutubeWallpaper.Playback;
 using YoutubeWallpaper.Wallpaper;
+using YoutubeWallpaper.UI;
 
 namespace YoutubeWallpaper.Tests;
 
 internal static class Program
 {
     private static int failures, assertions;
+    private static bool captureMotion;
     [STAThread]
     private static int Main(string[] args)
     {
@@ -18,6 +20,7 @@ internal static class Program
         Application.SetCompatibleTextRenderingDefault(false);
         try
         {
+            captureMotion = args.Contains("--motion");
             TestUrls();
             TestSettings();
             if (args.Contains("--ui")) RunMessageLoop(TestPanelAsync);
@@ -122,6 +125,7 @@ internal static class Program
     }
     private static async Task TestPanelAsync()
     {
+        int previousFailures = failures;
         var store = new SettingsStore(TestDirectory("panel"));
         using var form = new Form1(store);
         form.Show();
@@ -136,16 +140,68 @@ internal static class Program
         Console.WriteLine($"Panel renderizado: {previewPath}; DPI={form.DeviceDpi}");
         var host = Field<WallpaperHost>(form, "wallpaper");
         Check(form.Visible && !host.IsActive && host.Status.State == PlaybackState.Inactive, "T01 panel visible sin autoplay");
+        var volume = Field<AnimatedSlider>(form, "volumeSlider");
+        var intensity = Field<AnimatedSlider>(form, "intensitySlider");
+        var apply = Field<AnimatedButton>(form, "applyButton");
+        volume.Focus();
+        RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.Home));
+        Check(volume.Value == 0, "Slider: Home llega a cero");
+        RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.Right));
+        Check(volume.Value == 1, "Slider: flecha ajusta una unidad");
+        RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.PageUp));
+        Check(volume.Value == 11, "Slider: PageUp ajusta diez unidades");
+        RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.End));
+        RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.Up));
+        Check(volume.Value == 100, "Slider: límite superior");
+        volume.AccessibilityObject.Value = "40";
+        Check(volume.Value == 40 && volume.AccessibilityObject.Role == AccessibleRole.Slider, "Slider: valor accesible");
+        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
+        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
+        Check(volume.Value == 0 && !volume.Capture, "Slider: puntero y liberación de captura");
+        volume.Value = 20;
+        await Task.Delay(350);
+        Check(Math.Abs(volume.VisualPosition - 0.2f) < 0.01f, "Slider: posición visual alcanza el valor");
+        if (captureMotion) await RenderMotionAsync(form, apply, intensity, volume);
         Field<TextBox>(form, "urlBox").Text = "javascript:alert(1)";
         Field<Button>(form, "applyButton").PerformClick();
         Check(!host.IsActive && Field<Label>(form, "errorLabel").Text.Length > 0, "T05 error recuperable");
+        RaiseControlEvent(apply, "OnMouseEnter", EventArgs.Empty);
+        volume.Value = 30;
         form.Close();
+        await Task.Delay(40); // Let the next UI timer turn observe ancestor visibility changes.
         Check(!form.Visible && !form.ShowInTaskbar && !form.IsDisposed, "X oculta y mantiene el proceso");
+        Check(!apply.IsAnimating && !volume.IsAnimating, "Microanimaciones suspendidas al ocultar el panel");
         form.ShowConfiguration();
+        volume.Value = 20;
         Check(form.Visible && form.ShowInTaskbar, "Reapertura de configuración");
         form.GetType().GetMethod("ExitApplication", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(form, null);
         Check(form.IsDisposed && !host.IsActive, "Salida libera panel y host");
-        Console.WriteLine("PASS: panel, URL inválida, ocultación, reapertura y salida programáticas.");
+        Report(previousFailures, "panel, deslizadores, microanimaciones, ocultación, reapertura y salida.");
+    }
+    private static void RaiseControlEvent(Control control, string method, EventArgs args) =>
+        control.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(control, new object[] { args });
+
+    private static async Task RenderMotionAsync(Form1 form, AnimatedButton apply, AnimatedSlider intensity, AnimatedSlider volume)
+    {
+        string directory = Path.Combine(Environment.CurrentDirectory, "artifacts", "motion-frames");
+        Directory.CreateDirectory(directory);
+        Field<TextBox>(form, "urlBox").Text = "https://youtu.be/M7lc1UVf-VE";
+        form.ActiveControl = null;
+        for (int frame = 0; frame < 60; frame++)
+        {
+            if (frame == 5) RaiseControlEvent(apply, "OnMouseEnter", EventArgs.Empty);
+            if (frame == 15) { volume.Value = 65; RaiseControlEvent(volume, "OnMouseEnter", EventArgs.Empty); }
+            if (frame == 30) { intensity.Value = 50; RaiseControlEvent(intensity, "OnMouseEnter", EventArgs.Empty); }
+            if (frame == 43) { volume.Value = 20; RaiseControlEvent(volume, "OnMouseLeave", EventArgs.Empty); }
+            if (frame == 48) { intensity.Value = 85; RaiseControlEvent(intensity, "OnMouseLeave", EventArgs.Empty); RaiseControlEvent(apply, "OnMouseLeave", EventArgs.Empty); }
+            using var bitmap = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
+            // Render our controls, rather than capturing any other windows or desktop content.
+            form.Controls[0].DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+            bitmap.Save(Path.Combine(directory, $"frame-{frame:D3}.png"), System.Drawing.Imaging.ImageFormat.Png);
+            await Task.Delay(32);
+        }
+        Field<TextBox>(form, "urlBox").Text = "";
+        Console.WriteLine("Microanimaciones renderizadas: " + directory);
     }
     private static T Field<T>(object instance, string name) =>
         (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
@@ -179,8 +235,8 @@ internal static class Program
         var host = Field<WallpaperHost>(form, "wallpaper");
         host.StatusChanged += (_, status) => Console.WriteLine("Player: " + status.State + " " + status.Message);
         Field<TextBox>(form, "urlBox").Text = url;
-        Field<TrackBar>(form, "volumeSlider").Value = 0;
-        Field<TrackBar>(form, "intensitySlider").Value = 100;
+        Field<AnimatedSlider>(form, "volumeSlider").Value = 0;
+        Field<AnimatedSlider>(form, "intensitySlider").Value = 100;
         Field<Button>(form, "applyButton").PerformClick();
         await WaitForPlayer(host);
         Check(host.Status.State == PlaybackState.Playing, "Evento real playing de YouTube");
@@ -198,16 +254,16 @@ internal static class Program
             Check(icon.Visible, "Bandeja persistente con panel oculto");
             foreach (int value in new[] { 0, 20, 100 })
             {
-                Field<TrackBar>(form, "volumeSlider").Value = value;
+                Field<AnimatedSlider>(form, "volumeSlider").Value = value;
                 await Task.Delay(150);
                 using JsonDocument snapshot = await Snapshot(firstSurface);
                 Check(snapshot.RootElement.GetProperty("volume").GetInt32() == value &&
                     snapshot.RootElement.GetProperty("muted").GetBoolean() == (value == 0), "T13 volumen API " + value);
             }
-            Field<TrackBar>(form, "volumeSlider").Value = 0;
+            Field<AnimatedSlider>(form, "volumeSlider").Value = 0;
             foreach (int value in new[] { 0, 50, 100 })
             {
-                Field<TrackBar>(form, "intensitySlider").Value = value;
+                Field<AnimatedSlider>(form, "intensitySlider").Value = value;
                 await Task.Delay(150);
                 using JsonDocument snapshot = await Snapshot(firstSurface);
                 string filter = snapshot.RootElement.GetProperty("filter").GetString()!;

@@ -1,6 +1,7 @@
 using YoutubeWallpaper.App;
 using YoutubeWallpaper.Playback;
 using YoutubeWallpaper.Wallpaper;
+using YoutubeWallpaper.UI;
 
 namespace YoutubeWallpaper;
 
@@ -81,8 +82,8 @@ public partial class Form1 : Form
 
     private void UpdateValues()
     {
-        volumeLabel.Text = $"Volumen · {volumeSlider.Value} %";
-        intensityLabel.Text = $"Intensidad visual · {intensitySlider.Value} %";
+        volumeLabel.Text = $"{volumeSlider.Value} %";
+        intensityLabel.Text = $"{intensitySlider.Value} %";
     }
     private void QueueSave() { saveTimer.Stop(); saveTimer.Start(); }
     private void SaveSettings()
@@ -100,12 +101,15 @@ public partial class Form1 : Form
         bool valid = YouTubeUrlParser.TryParse(urlBox.Text, out var pendingSource, out _);
         applyButton.Enabled = status.State != PlaybackState.Loading && !exiting;
         stopButton.Enabled = wallpaper.IsActive && !exiting;
-        statusLabel.Text = "●  " + TrayController.StatusText(status.State);
+        statusLabel.Text = TrayController.StatusText(status.State);
+        bool loading = status.State == PlaybackState.Loading;
+        applyButton.IsLoading = loading;
+        statusLabel.IsLoading = loading;
         statusLabel.ForeColor = status.State switch
         {
-            PlaybackState.Playing => Color.FromArgb(118, 218, 170),
-            PlaybackState.Error => Color.FromArgb(255, 143, 143),
-            _ => Color.FromArgb(167, 191, 216)
+            PlaybackState.Playing => Theme.Green,
+            PlaybackState.Error => Theme.Error,
+            _ => Theme.Cyan
         };
         errorLabel.Text = notice ?? status.Message ?? "";
         tray.Update(status, wallpaper.IsActive, valid &&
@@ -121,6 +125,11 @@ public partial class Form1 : Form
         Activate();
         BringToFront();
         RefreshStatus();
+    }
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        WindowAppearance.Apply(Handle);
     }
     private void ExitApplication()
     {
