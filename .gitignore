@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+.vs/
+.build/
+artifacts/
+**/*.user
+**/*.suo
+**/*.WebView2/
+TestResults/
+*.log
+*.tmp
+settings.json
