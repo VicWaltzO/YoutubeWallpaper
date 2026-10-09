@@ -55,6 +55,10 @@ internal sealed class SettingsStore
                 // A virus scanner or editor may briefly hold the destination during replacement.
                 catch (IOException ex) when (attempt < 2 && (ex.HResult & 0xFFFF) is 32 or 33)
                 { Thread.Sleep(25); }
+                // Windows can report an outstanding delete/replace lock as ACCESS_DENIED.
+                // Permanent permission errors still surface after this bounded retry.
+                catch (UnauthorizedAccessException) when (attempt < 2)
+                { Thread.Sleep(25); }
             }
             return true;
         }
