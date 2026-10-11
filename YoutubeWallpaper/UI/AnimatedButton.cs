@@ -20,6 +20,9 @@ internal sealed class AnimatedButton : Button
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
             ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
         FlatStyle = FlatStyle.Flat;
+        // ButtonBase assumes its paint routine fills every pixel. Our rounded face does not:
+        // let WinForms repaint the parent's background before each buffered animation frame.
+        SetStyle(ControlStyles.Opaque, false);
         FlatAppearance.BorderSize = 0;
         BackColor = Color.Transparent;
         UseVisualStyleBackColor = false;
@@ -43,7 +46,14 @@ internal sealed class AnimatedButton : Button
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        if (e.Button == MouseButtons.Left) { pressed = true; motion.Request(); }
+        if (e.Button == MouseButtons.Left && Enabled)
+        {
+            pressed = true;
+            // Very short clicks can finish between two timer ticks. Show feedback immediately.
+            press = Math.Max(press, 0.45f);
+            Invalidate();
+            motion.Request();
+        }
     }
     protected override void OnMouseUp(MouseEventArgs e) { pressed = false; motion.Request(); base.OnMouseUp(e); }
     protected override void OnMouseCaptureChanged(EventArgs e)
@@ -59,7 +69,7 @@ internal sealed class AnimatedButton : Button
     protected override void OnKeyUp(KeyEventArgs e) { pressed = false; motion.Request(); base.OnKeyUp(e); }
     protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); motion.Request(); }
     protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { pressed = false; motion.Request(); base.OnLostFocus(e); Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         Theme.Prepare(e.Graphics);

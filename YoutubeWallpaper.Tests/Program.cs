@@ -143,6 +143,10 @@ internal static class Program
         var volume = Field<AnimatedSlider>(form, "volumeSlider");
         var intensity = Field<AnimatedSlider>(form, "intensitySlider");
         var apply = Field<AnimatedButton>(form, "applyButton");
+        foreach (var valueLabel in new[] { Field<Label>(form, "intensityLabel"), Field<Label>(form, "volumeLabel") })
+            Check(valueLabel.Height >= TextRenderer.MeasureText("100 %", valueLabel.Font).Height,
+                "Porcentaje: la fila reserva toda la altura del texto");
+        await TestButtonPaintingAsync(apply, Field<AnimatedButton>(form, "stopButton"));
         volume.Focus();
         RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.Home));
         Check(volume.Value == 0, "Slider: Home llega a cero");
@@ -158,6 +162,11 @@ internal static class Program
         RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
         RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
         Check(volume.Value == 0 && !volume.Capture, "Slider: puntero y liberación de captura");
+        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, volume.Width / 2, volume.Height / 2, 0));
+        RaiseControlEvent(volume, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, volume.Width - 12, volume.Height / 2, 0));
+        Check(Math.Abs(volume.VisualPosition - (float)volume.Value / volume.Maximum) < 0.002f,
+            "Slider: el indicador sigue el cursor sin retraso durante el arrastre");
+        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, volume.Width - 12, volume.Height / 2, 0));
         volume.Value = 20;
         await Task.Delay(350);
         Check(Math.Abs(volume.VisualPosition - 0.2f) < 0.01f, "Slider: posición visual alcanza el valor");
@@ -180,6 +189,48 @@ internal static class Program
     }
     private static void RaiseControlEvent(Control control, string method, EventArgs args) =>
         control.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(control, new object[] { args });
+
+    private static async Task TestButtonPaintingAsync(AnimatedButton apply, AnimatedButton stop)
+    {
+        foreach (var button in new[] { apply, stop })
+        {
+            bool enabled = button.Enabled;
+            button.Enabled = true;
+            RaiseControlEvent(button, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+            Check(Field<float>(button, "press") > 0, "Microanimación: un clic breve produce feedback antes del primer tick");
+            RaiseControlEvent(button, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, -1, -1, 0));
+            await Task.Delay(350);
+            foreach (string state in new[] { "reposo", "hover", "pulsación", "liberación", "deshabilitado" })
+            {
+                if (state == "hover") RaiseControlEvent(button, "OnMouseEnter", EventArgs.Empty);
+                if (state == "pulsación") RaiseControlEvent(button, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 20, 20, 0));
+                if (state == "liberación")
+                {
+                    RaiseControlEvent(button, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, -1, -1, 0));
+                    RaiseControlEvent(button, "OnMouseLeave", EventArgs.Empty);
+                }
+                if (state == "deshabilitado") button.Enabled = false;
+                await Task.Delay(350);
+                using var client = new Bitmap(button.Width, button.Height);
+                using (var graphics = Graphics.FromImage(client))
+                {
+                    graphics.Clear(Color.Magenta);
+                    nint dc = graphics.GetHdc();
+                    try { SendMessage(button.Handle, 0x0318, dc, 0x4); } // WM_PRINTCLIENT / PRF_CLIENT: only our control.
+                    finally { graphics.ReleaseHdc(dc); }
+                }
+                using var parent = new Bitmap(button.Parent!.Width, button.Parent.Height);
+                button.Parent.DrawToBitmap(parent, new Rectangle(Point.Empty, parent.Size));
+                var points = new[] { Point.Empty, new Point(button.Width - 1, 0),
+                    new Point(0, button.Height - 1), new Point(button.Width - 1, button.Height - 1),
+                    new Point(button.Width / 2, button.Height - 1) };
+                Check(points.All(p => client.GetPixel(p.X, p.Y).ToArgb() == parent.GetPixel(button.Left + p.X, button.Top + p.Y).ToArgb()),
+                    $"Botón {(button.Primary ? "Aplicar" : "Detener")}: fondo de esquinas y borde inferior coincide con el panel en {state}");
+            }
+            button.Enabled = enabled;
+            RaiseControlEvent(button, "OnMouseLeave", EventArgs.Empty);
+        }
+    }
 
     private static async Task RenderMotionAsync(Form1 form, AnimatedButton apply, AnimatedSlider intensity, AnimatedSlider volume)
     {
@@ -314,5 +365,6 @@ internal static class Program
         return JsonDocument.Parse(json);
     }
     [DllImport("user32.dll")] private static extern bool IsWindowEnabled(nint window);
+    [DllImport("user32.dll")] private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
 }

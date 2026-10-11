@@ -31,6 +31,8 @@ internal class AnimatedSlider : Control
             if (value < 0 || value > maximum) throw new ArgumentOutOfRangeException(nameof(value));
             if (this.value == value) return;
             this.value = value;
+            // Dragging is direct manipulation; easing belongs to click/keyboard/programmatic changes.
+            if (Capture) position = (float)value / maximum;
             motion.Request();
             AccessibilityNotifyClients(AccessibleEvents.ValueChange, -1);
             ValueChanged?.Invoke(this, EventArgs.Empty);
@@ -93,6 +95,7 @@ internal class AnimatedSlider : Control
         Focus();
         Capture = true;
         SetFromPointer(e.X);
+        position = (float)value / maximum;
         motion.Request();
     }
     protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (Capture) SetFromPointer(e.X); }

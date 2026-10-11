@@ -192,7 +192,7 @@ partial class Form1
         var rows = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
         rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rows.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
-        foreach (int height in new[] { 25, 39, 36 })
+        foreach (int height in new[] { 25, 45, 36 })
             rows.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         rows.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         rows.Controls.Add(Caption(title, 10F, FontStyle.Bold, Theme.Text), 0, 0);
