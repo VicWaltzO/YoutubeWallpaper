@@ -132,6 +132,10 @@ El reproductor se sirve desde contenido empaquetado mediante un host virtual HTT
 
 La base original se preservó en un commit local antes de implementar. .gitignore excluye bin, obj, .vs, datos personales de Visual Studio, perfiles, logs y artefactos generados. El código, los assets empaquetados y el icono propio sí se versionan.
 
-No hay remoto configurado y no se creó ni publicó un repositorio de GitHub. Esa publicación requiere autorización y un destino concreto. No se hicieron pushes ni cambios en cuentas externas.
+El repositorio público es [VicWaltzO/YoutubeWallpaper](https://github.com/VicWaltzO/YoutubeWallpaper), con la rama master. Se conservó el historial original y se suben los cambios en commits pequeños después de verificarlos. Las correcciones de interfaz y su documentación tienen commits separados.
+
+![Panel de configuración](docs/images/panel.png)
+
+Los botones redondeados repintan el fondo en cada frame, incluidos hover, pulsación y estado deshabilitado. Los clics breves muestran respuesta inmediata y el deslizador sigue el cursor durante el arrastre; los cambios por teclado o de valor conservan su transición suave. El porcentaje y la barra se dibujan juntos en una sola superficie con doble búfer para evitar números entrecortados durante los cambios continuos.
 
 La [auditoría](docs/AUDITORIA.md) explica la base encontrada. El [informe de validación](docs/VALIDACION.md) registra resultados y pendientes, incluida la comprobación visual que aún necesita realizarse.

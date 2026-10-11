@@ -101,3 +101,17 @@ Las animaciones están implementadas con controles WinForms y timers de UI activ
 La validación del rediseño detectó un bloqueo transitorio de reemplazo del JSON que Windows notificó como ACCESS_DENIED. El guardado ahora incluye ese caso en los mismos dos reintentos limitados, sin ocultar un error de permisos permanente ni modificar permisos de archivos.
 
 La vista animada de artifacts/microanimaciones.gif procede de 60 renders de los controles reales; no es una simulación en HTML ni un mock. Los frames reproducen hover y cambios de valor sin iniciar un wallpaper. El GIF y los frames son artefactos locales ignorados por Git.
+
+## Correcciones y publicación — 11 de octubre de 2026
+
+Se creó el repositorio público https://github.com/VicWaltzO/YoutubeWallpaper por petición del usuario. Se subieron los cinco commits previos sin reescribirlos y, después, cc8dcb4 con las correcciones de botones/arrastre y d711b9e con el repintado conjunto de porcentajes y barra. La rama master sigue origin/master. Las menciones anteriores de ausencia de remoto describen la entrega del 9 de octubre.
+
+La prueba anterior de DrawToBitmap del formulario no detectaba el fondo negro de las actualizaciones individuales del botón. Se añadió una prueba de WM_PRINTCLIENT sobre los controles propios que compara los píxeles de las cuatro esquinas y del borde inferior con el fondo del panel. Reprodujo diez fallos antes de la corrección: dos botones en reposo, hover, pulsación, liberación y estado deshabilitado. Otra comprobación reprodujo el retraso visual durante el arrastre.
+
+AnimatedButton desactiva el estilo Opaque heredado de ButtonBase: así WinForms repinta el fondo del padre antes de dibujar la cara redondeada. También presenta feedback inmediato en clics que terminan antes del primer tick y libera la pulsación al perder el foco. El deslizador sincroniza su indicador con el cursor durante el arrastre. La fila del porcentaje aumentó de 39 a 45 unidades lógicas y su altura se verifica contra la medida real del texto.
+
+El usuario señaló además que los números se entrecortaban o desaparecían brevemente durante el arrastre. Se eliminaron las etiquetas de porcentaje separadas: AnimatedSlider pinta ahora el valor y la barra en un solo HWND con doble búfer. Solo cambia el valor de reproducción cuando corresponde; no se añade ningún retardo al arrastre. Se comprueban 36 frames de ida y vuelta en cada deslizador mediante WM_PRINTCLIENT, exigiendo texto completo y posición visual sincronizada en cada frame.
+
+La suite final Release con --ui --motion pasó **88 comprobaciones, 0 fallos**. La prueba de reproducción real pasó de nuevo **78 comprobaciones, 0 fallos**, incluido el control de volumen/intensidad y el ciclo de bandeja. La compilación Release tuvo **0 errores y 0 advertencias**. Se generaron de nuevo los 60 frames y el GIF de los controles reales; se inspeccionó el render a 96 DPI. La imagen docs/images/panel.png procede de esos renders. Estas pruebas no certifican otras escalas físicas de monitor ni sustituyen los pendientes de escritorio de la matriz anterior.
+
+La primera actualización de artifacts/publish encontró el DLL bloqueado por la app abierta. Tras la salida de la app se actualizó correctamente la carpeta habitual artifacts/publish. El DLL publicado coincide por SHA-256 con el Release comprobado. Requiere los archivos adyacentes y .NET Desktop Runtime 8, igual que la entrega anterior. Una segunda ejecución solo vuelve a mostrar el panel de la instancia existente.
