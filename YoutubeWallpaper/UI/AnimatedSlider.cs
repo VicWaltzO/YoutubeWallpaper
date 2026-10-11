@@ -10,6 +10,8 @@ internal class AnimatedSlider : Control
     private float position, hover;
     private bool hovered;
     public Color Accent { get; set; } = Theme.Cyan;
+    public bool ShowValue { get; set; }
+    internal int ValueTextHeight => ShowValue ? (int)Math.Ceiling(Theme.Scale(this, 45)) : 0;
     [DefaultValue(100)]
     public int Maximum
     {
@@ -91,7 +93,7 @@ internal class AnimatedSlider : Control
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
-        if (e.Button != MouseButtons.Left || !Enabled) return;
+        if (e.Button != MouseButtons.Left || !Enabled || e.Y < ValueTextHeight) return;
         Focus();
         Capture = true;
         SetFromPointer(e.X);
@@ -118,7 +120,12 @@ internal class AnimatedSlider : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         Theme.Prepare(e.Graphics);
-        float unit = DeviceDpi / 96f, inset = 12 * unit, y = Height / 2f, width = Math.Max(1, Width - inset * 2);
+        // Value and rail share one HWND and one buffered paint. A moving transparent child
+        // must never repaint the background underneath a separate, changing value label.
+        if (ShowValue)
+            TextRenderer.DrawText(e.Graphics, $"{value} %", Font, new Rectangle(0, 0, Width, ValueTextHeight), Accent,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
+        float unit = DeviceDpi / 96f, inset = 12 * unit, y = (Height + ValueTextHeight) / 2f, width = Math.Max(1, Width - inset * 2);
         using var rail = new Pen(Color.FromArgb(27, 41, 52), 5 * unit) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         e.Graphics.DrawLine(rail, inset, y, Width - inset, y);
         float x = inset + width * position;

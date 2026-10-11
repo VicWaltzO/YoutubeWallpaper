@@ -9,8 +9,6 @@ partial class Form1
     private TextBox urlBox = null!;
     private AnimatedSlider intensitySlider = null!;
     private AnimatedSlider volumeSlider = null!;
-    private Label intensityLabel = null!;
-    private Label volumeLabel = null!;
     private StatusBadge statusLabel = null!;
     private Label errorLabel = null!;
     private AnimatedButton applyButton = null!;
@@ -104,19 +102,19 @@ partial class Form1
         intensitySlider = new AnimatedSlider
         {
             Dock = DockStyle.Fill, Maximum = 100, Value = 85, LargeChange = 10, Accent = Theme.Violet,
+            ShowValue = true, Font = new Font("Segoe UI", 24F, FontStyle.Bold),
             Margin = Padding.Empty, AccessibleName = "Intensidad visual", TabIndex = 1
         };
         volumeSlider = new AnimatedSlider
         {
             Dock = DockStyle.Fill, Maximum = 100, Value = 20, LargeChange = 10, Accent = Theme.Cyan,
+            ShowValue = true, Font = new Font("Segoe UI", 24F, FontStyle.Bold),
             Margin = Padding.Empty, AccessibleName = "Volumen", TabIndex = 2
         };
-        intensityLabel = Caption("85 %", 24F, FontStyle.Bold, Theme.Violet);
-        volumeLabel = Caption("20 %", 24F, FontStyle.Bold, Theme.Cyan);
-        var intensityCard = SliderCard("Intensidad visual", intensityLabel, intensitySlider, TileIcon.Sun,
+        var intensityCard = SliderCard("Intensidad visual", intensitySlider, TileIcon.Sun,
             Theme.Violet, "Oscurece el vídeo.\nNo es transparencia.");
         intensityCard.Margin = new Padding(0, 0, 6, 0);
-        var volumeCard = SliderCard("Volumen", volumeLabel, volumeSlider, TileIcon.Volume,
+        var volumeCard = SliderCard("Volumen", volumeSlider, TileIcon.Volume,
             Theme.Cyan, "Silencio al llegar a 0 %.");
         volumeCard.Margin = new Padding(6, 0, 0, 0);
         sliders.Controls.Add(intensityCard, 0, 0);
@@ -182,27 +180,25 @@ partial class Form1
         Font = new Font("Segoe UI", size, style), ForeColor = color, TextAlign = ContentAlignment.MiddleLeft
     };
 
-    private static SurfacePanel SliderCard(string title, Label value, AnimatedSlider slider, TileIcon symbol, Color accent, string hint)
+    private static SurfacePanel SliderCard(string title, AnimatedSlider slider, TileIcon symbol, Color accent, string hint)
     {
         var card = new SurfacePanel
         {
             Dock = DockStyle.Fill, Padding = new Padding(18, 12, 18, 12), CornerRadius = 17,
             TopColor = Color.FromArgb(51, 70, 84), BottomColor = Color.FromArgb(36, 52, 65)
         };
-        var rows = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 2, RowCount = 4, Margin = Padding.Empty };
+        var rows = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 2, RowCount = 3, Margin = Padding.Empty };
         rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rows.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
-        foreach (int height in new[] { 25, 45, 36 })
+        foreach (int height in new[] { 25, 81 })
             rows.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         rows.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         rows.Controls.Add(Caption(title, 10F, FontStyle.Bold, Theme.Text), 0, 0);
         rows.Controls.Add(new IconTile { Symbol = symbol, Accent = accent, Filled = false, Dock = DockStyle.Fill, Margin = Padding.Empty }, 1, 0);
-        rows.Controls.Add(value, 0, 1);
-        rows.SetColumnSpan(value, 2);
-        rows.Controls.Add(slider, 0, 2);
+        rows.Controls.Add(slider, 0, 1);
         rows.SetColumnSpan(slider, 2);
         var description = Caption(hint, 8.5F, FontStyle.Regular, Theme.Muted);
-        rows.Controls.Add(description, 0, 3);
+        rows.Controls.Add(description, 0, 2);
         rows.SetColumnSpan(description, 2);
         card.Controls.Add(rows);
         return card;

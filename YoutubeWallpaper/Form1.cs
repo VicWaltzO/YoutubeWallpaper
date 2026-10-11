@@ -39,18 +39,15 @@ public partial class Form1 : Form
         urlBox.TextChanged += (_, _) => RefreshStatus();
         volumeSlider.ValueChanged += (_, _) =>
         {
-            UpdateValues();
             wallpaper.SetVolume(volumeSlider.Value);
             QueueSave();
         };
         intensitySlider.ValueChanged += (_, _) =>
         {
-            UpdateValues();
             wallpaper.SetIntensity(intensitySlider.Value);
             QueueSave();
         };
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); SaveSettings(); };
-        UpdateValues();
         RefreshStatus();
     }
 
@@ -80,11 +77,6 @@ public partial class Form1 : Form
         else await ApplyWallpaperAsync();
     }
 
-    private void UpdateValues()
-    {
-        volumeLabel.Text = $"{volumeSlider.Value} %";
-        intensityLabel.Text = $"{intensitySlider.Value} %";
-    }
     private void QueueSave() { saveTimer.Stop(); saveTimer.Start(); }
     private void SaveSettings()
     {

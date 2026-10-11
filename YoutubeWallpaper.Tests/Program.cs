@@ -143,10 +143,12 @@ internal static class Program
         var volume = Field<AnimatedSlider>(form, "volumeSlider");
         var intensity = Field<AnimatedSlider>(form, "intensitySlider");
         var apply = Field<AnimatedButton>(form, "applyButton");
-        foreach (var valueLabel in new[] { Field<Label>(form, "intensityLabel"), Field<Label>(form, "volumeLabel") })
-            Check(valueLabel.Height >= TextRenderer.MeasureText("100 %", valueLabel.Font).Height,
+        foreach (var slider in new[] { intensity, volume })
+            Check(slider.ValueTextHeight >= TextRenderer.MeasureText("100 %", slider.Font).Height,
                 "Porcentaje: la fila reserva toda la altura del texto");
         await TestButtonPaintingAsync(apply, Field<AnimatedButton>(form, "stopButton"));
+        await TestContinuousDragAsync(intensity);
+        await TestContinuousDragAsync(volume);
         volume.Focus();
         RaiseControlEvent(volume, "OnKeyDown", new KeyEventArgs(Keys.Home));
         Check(volume.Value == 0, "Slider: Home llega a cero");
@@ -159,14 +161,15 @@ internal static class Program
         Check(volume.Value == 100, "Slider: límite superior");
         volume.AccessibilityObject.Value = "40";
         Check(volume.Value == 40 && volume.AccessibilityObject.Role == AccessibleRole.Slider, "Slider: valor accesible");
-        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
-        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, 0, volume.Height / 2, 0));
+        int railY = (volume.Height + volume.ValueTextHeight) / 2;
+        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 0, railY, 0));
+        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, 0, railY, 0));
         Check(volume.Value == 0 && !volume.Capture, "Slider: puntero y liberación de captura");
-        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, volume.Width / 2, volume.Height / 2, 0));
-        RaiseControlEvent(volume, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, volume.Width - 12, volume.Height / 2, 0));
+        RaiseControlEvent(volume, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, volume.Width / 2, railY, 0));
+        RaiseControlEvent(volume, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, volume.Width - 12, railY, 0));
         Check(Math.Abs(volume.VisualPosition - (float)volume.Value / volume.Maximum) < 0.002f,
             "Slider: el indicador sigue el cursor sin retraso durante el arrastre");
-        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, volume.Width - 12, volume.Height / 2, 0));
+        RaiseControlEvent(volume, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, volume.Width - 12, railY, 0));
         volume.Value = 20;
         await Task.Delay(350);
         Check(Math.Abs(volume.VisualPosition - 0.2f) < 0.01f, "Slider: posición visual alcanza el valor");
@@ -189,6 +192,41 @@ internal static class Program
     }
     private static void RaiseControlEvent(Control control, string method, EventArgs args) =>
         control.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(control, new object[] { args });
+
+    private static async Task TestContinuousDragAsync(AnimatedSlider slider)
+    {
+        int original = slider.Value, railY = (slider.Height + slider.ValueTextHeight) / 2;
+        RaiseControlEvent(slider, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, 12, railY, 0));
+        bool complete = true;
+        for (int frame = 0; frame < 36; frame++)
+        {
+            int x = 12 + (slider.Width - 24) * (frame < 18 ? frame : 35 - frame) / 17;
+            RaiseControlEvent(slider, "OnMouseMove", new MouseEventArgs(MouseButtons.Left, 0, x, railY, 0));
+            await Task.Delay(16);
+            using var client = new Bitmap(slider.Width, slider.Height);
+            using (var graphics = Graphics.FromImage(client))
+            {
+                nint dc = graphics.GetHdc();
+                try { SendMessage(slider.Handle, 0x0318, dc, 0x4); }
+                finally { graphics.ReleaseHdc(dc); }
+            }
+            int inkPixels = 0, inkRows = 0;
+            for (int y = 0; y < slider.ValueTextHeight; y++)
+            {
+                bool ink = false;
+                for (int pixelX = 0; pixelX < slider.Width; pixelX++)
+                    if (client.GetPixel(pixelX, y).ToArgb() == slider.Accent.ToArgb()) { inkPixels++; ink = true; }
+                if (ink) inkRows++;
+            }
+            complete &= inkPixels > 100 && inkRows > TextRenderer.MeasureText("100 %", slider.Font).Height / 2;
+            complete &= Math.Abs(slider.VisualPosition - (float)slider.Value / slider.Maximum) < 0.002f;
+        }
+        Check(complete, $"{slider.AccessibleName}: porcentaje completo y puntero sincronizado en 36 frames de arrastre continuo");
+        RaiseControlEvent(slider, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, 12, railY, 0));
+        RaiseControlEvent(slider, "OnMouseLeave", EventArgs.Empty);
+        slider.Value = original;
+        await Task.Delay(350);
+    }
 
     private static async Task TestButtonPaintingAsync(AnimatedButton apply, AnimatedButton stop)
     {
